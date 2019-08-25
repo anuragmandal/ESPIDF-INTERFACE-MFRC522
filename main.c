@@ -49,13 +49,13 @@ void app_main()
     while(1)
     {
 
-    	if(PICC_IsNewCardPresent(spi))//Checking for new card
+    	if(PICC_IsNewCardPresent(spi))                   //Checking for new card
     	{
 
     		printf("*****************CARD PRESENT*****************\r\n");
 
-    		PICC_ReadCardSerial(spi);	//READ CARD
-    		PICC_DumpToSerial(spi,&uid);//DETAILS OF UID ALONG WITH SECTORS
+    		PICC_ReadCardSerial(spi);	                   //READ CARD
+    		PICC_DumpToSerial(spi,&uid);                  //DETAILS OF UID ALONG WITH SECTORS
 
     		vTaskDelay(1000 / portTICK_PERIOD_MS);
 
