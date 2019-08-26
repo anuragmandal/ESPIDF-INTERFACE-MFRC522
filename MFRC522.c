@@ -309,31 +309,24 @@ PICC_Type PICC_GetType(uint8_t sak		///< The SAK byte returned from PICC_Select(
 		default:	return PICC_TYPE_UNKNOWN;
 	}
 } // End PICC_GetType()
-bool get_data(spi_device_handle_t spi)
-{
-	  static uint8_t bufferATQA[18]={0};
-	    uint8_t bufferSize = sizeof(bufferATQA);
 
-	    uint8_t result = PICC_CMD_MF(spi,bufferATQA, &bufferSize);
 
-	printf("get-data-result%d",result);
 
-	    return (result == STATUS_OK || result == STATUS_COLLISION);
-}
-uint8_t PICC_CMD_MF(spi_device_handle_t spi,uint8_t *bufferATQA,uint8_t *bufferSize)
-{
-	uint8_t buffer[18];
-
-	buffer[0] = PICC_CMD_MF_READ;
-		buffer[1] = 0;
-	return PCD_TransceiveData(spi,buffer, 4, bufferATQA, bufferSize, NULL,0,false);
-
-}
-
+/**
+ * Transmits a REQuest command, Type A. Invites PICCs in state IDLE to go to READY and prepare for anticollision or selection. 7 bit frame.
+ * Beware: When two PICCs are in the field at the same time I often get STATUS_TIMEOUT - probably due do bad antenna design.
+ * 
+ * @return STATUS_OK on success, STATUS_??? otherwise.
+ */
 uint8_t PICC_RequestA(spi_device_handle_t spi,uint8_t *bufferATQA,uint8_t *bufferSize){
     return PICC_REQA_or_WUPA(spi,PICC_CMD_REQA, bufferATQA, bufferSize);
 }
-
+/**
+ * Transmits REQA or WUPA commands.
+ * Beware: When two PICCs are in the field at the same time I often get STATUS_TIMEOUT - probably due do bad antenna design.
+ * 
+ * @return STATUS_OK on success, STATUS_??? otherwise.
+ */ 
 uint8_t PICC_REQA_or_WUPA(spi_device_handle_t spi,uint8_t command,uint8_t *bufferATQA,uint8_t *bufferSize){
     uint8_t validBits;
     uint8_t status;
@@ -351,7 +344,12 @@ uint8_t PICC_REQA_or_WUPA(spi_device_handle_t spi,uint8_t command,uint8_t *buffe
     }
     return STATUS_OK;
 }
-
+/**
+ * Executes the Transceive command.
+ * CRC validation can only be done if backData and backLen are specified.
+ * 
+ * @return STATUS_OK on success, STATUS_??? otherwise.
+ */
 uint8_t PCD_TransceiveData( spi_device_handle_t spi,
                                                     uint8_t *sendData,     ///< Pointer to the data to transfer to the FIFO.
                                                     uint8_t sendLen,       ///< Number of uint8_ts to transfer to the FIFO.
@@ -1142,8 +1140,82 @@ bool MIFARE_Read(spi_device_handle_t spi,	uint8_t blockAddr, 	///< MIFARE Classi
 	return PCD_TransceiveData(spi,buffer, 4, buffer, bufferSize, NULL, 0, true);
 } // End MIFARE_Read()
 
+uint8_t MIFARE_Write(spi_device_handle_t spi,	uint8_t blockAddr, ///< MIFARE Classic: The block (0-0xff) number. MIFARE Ultralight: The page (2-15) to write to.
+						uint8_t *buffer,	///< The 16 bytes to write to the PICC
+						uint8_t bufferSize	///< Buffer size, must be at least 16 bytes. Exactly 16 bytes are written.
+										) {
+	uint8_t result;
 
+	// Sanity check
+	if (buffer == NULL || bufferSize < 16) {
+		return STATUS_INVALID;
+	}
 
+	// Mifare Classic protocol requires two communications to perform a write.
+	// Step 1: Tell the PICC we want to write to block blockAddr.
+	uint8_t cmdBuffer[2];
+	cmdBuffer[0] = PICC_CMD_MF_WRITE;
+	cmdBuffer[1] = blockAddr;
+	result = PCD_MIFARE_Transceive(spi,cmdBuffer, 2,false); // Adds CRC_A and checks that the response is MF_ACK.
+	if (result != STATUS_OK) {
+		return result;
+	}
+
+	// Step 2: Transfer the data
+	result = PCD_MIFARE_Transceive(spi,buffer, bufferSize,false); // Adds CRC_A and checks that the response is MF_ACK.
+	if (result != STATUS_OK) {
+		return result;
+	}
+
+	return STATUS_OK;
+} // End MIFARE_Write()
+
+/**
+ * Wrapper for MIFARE protocol communication.
+ * Adds CRC_A, executes the Transceive command and checks that the response is MF_ACK or a timeout.
+ *
+ * @return STATUS_OK on success, STATUS_??? otherwise.
+ */
+uint8_t PCD_MIFARE_Transceive(spi_device_handle_t spi,	uint8_t *sendData,		///< Pointer to the data to transfer to the FIFO. Do NOT include the CRC_A.
+		uint8_t sendLen,		///< Number of bytes in sendData.
+													bool acceptTimeout	///< True => A timeout is also success
+												) {
+	uint8_t result;
+	uint8_t cmdBuffer[18]; // We need room for 16 bytes data and 2 bytes CRC_A.
+
+	// Sanity check
+	if (sendData == NULL || sendLen > 16) {
+		return STATUS_INVALID;
+	}
+
+	// Copy sendData[] to cmdBuffer[] and add CRC_A
+	memcpy(cmdBuffer, sendData, sendLen);
+	result = PCD_CalculateCRC(spi,cmdBuffer, sendLen, &cmdBuffer[sendLen]);
+	if (result != STATUS_OK) {
+		return result;
+	}
+	sendLen += 2;
+
+	// Transceive the data, store the reply in cmdBuffer[]
+	uint8_t waitIRq = 0x30;		// RxIRq and IdleIRq
+	uint8_t cmdBufferSize = sizeof(cmdBuffer);
+	uint8_t validBits = 0;
+	result = PCD_CommunicateWithPICC(spi,PCD_Transceive, waitIRq, cmdBuffer, sendLen, cmdBuffer, &cmdBufferSize, &validBits,0,false);
+	if (acceptTimeout && result == STATUS_TIMEOUT) {
+		return STATUS_OK;
+	}
+	if (result != STATUS_OK) {
+		return result;
+	}
+	// The PICC must reply with a 4 bit ACK
+	if (cmdBufferSize != 1 || validBits != 4) {
+		return STATUS_ERROR;
+	}
+	if (cmdBuffer[0] != MF_ACK) {
+		return STATUS_MIFARE_NACK;
+	}
+	return STATUS_OK;
+} // End PCD_MIFARE_Transceive()
 
 
 /**
