@@ -226,11 +226,10 @@ enum PCD_Register {
 												uint8_t *bufferSize	///< Buffer size, at least 18 bytes. Also number of bytes returned if STATUS_OK.
 											);
 
-
-
-
-	uint8_t PICC_CMD_MF(spi_device_handle_t spi,uint8_t *bufferATQA,uint8_t *bufferSize);
-	bool get_data(spi_device_handle_t spi);
+	uint8_t MIFARE_Write(spi_device_handle_t spi,	uint8_t blockAddr, ///< MIFARE Classic: The block (0-0xff) number. MIFARE Ultralight: The page (2-15) to write to.
+							uint8_t *buffer,	///< The 16 bytes to write to the PICC
+							uint8_t bufferSize	///< Buffer size, must be at least 16 bytes. Exactly 16 bytes are written.
+											) ;
 
 	void PICC_DumpMifareUltralightToSerial(spi_device_handle_t spi);
 	void PICC_GetTypeName(PICC_Type piccType);
@@ -239,18 +238,22 @@ enum PCD_Register {
 										);
 	void GetStatusCodeName(uint8_t code	///< One of the StatusCode enums.
 											);
-	uint8_t PCD_Authenticate(spi_device_handle_t spi,uint8_t command,        ///< PICC_CMD_MF_AUTH_KEY_A or PICC_CMD_MF_AUTH_KEY_B
-				 uint8_t blockAddr, 				 ///< The block number. See numbering in the comments in the .h file.
-				 MIFARE_Key *key,			         ///< Pointer to the Crypteo1 key to use (6 bytes)
-				 Uid *uid					 ///< Pointer to Uid struct. The first 4 bytes of the UID is used.
-				);
-	void PICC_DumpMifareClassicToSerial(spi_device_handle_t spi,	Uid *uid,///< Pointer to Uid struct returned from a successful PICC_Select().
-   					    PICC_Type piccType,	                 ///< One of the PICC_Type enums.
-					    MIFARE_Key *key		         ///< Key A used for all sectors.
+	uint8_t PCD_Authenticate(spi_device_handle_t spi,uint8_t command,		///< PICC_CMD_MF_AUTH_KEY_A or PICC_CMD_MF_AUTH_KEY_B
+				uint8_t blockAddr, 			///< The block number. See numbering in the comments in the .h file.
+				MIFARE_Key *key,			///< Pointer to the Crypteo1 key to use (6 bytes)
+				Uid *uid			        ///< Pointer to Uid struct. The first 4 bytes of the UID is used.
+			        );
+	void PICC_DumpMifareClassicToSerial(spi_device_handle_t spi,	Uid *uid,	///< Pointer to Uid struct returned from a successful PICC_Select().
+					    PICC_Type piccType,	        ///< One of the PICC_Type enums.
+					    MIFARE_Key *key		///< Key A used for all sectors.
 					    );
 	void PICC_DumpDetailsToSerial(Uid *uid);
-	void PICC_DumpMifareClassicSectorToSerial(spi_device_handle_t spi,Uid *uid,///< Pointer to Uid struct returned from a successful PICC_Select().
-						  MIFARE_Key *key,	           ///< Key A for the sector.
-						  uint8_t sector		   ///< The sector to dump, 0..39.
-						  );
+	void PICC_DumpMifareClassicSectorToSerial(spi_device_handle_t spi,Uid *uid,	///< Pointer to Uid struct returned from a successful PICC_Select().
+						  MIFARE_Key *key,	///< Key A for the sector.
+						   uint8_t sector	///< The sector to dump, 0..39.
+						 );
+	uint8_t PCD_MIFARE_Transceive(spi_device_handle_t spi,	uint8_t *sendData,	///< Pointer to the data to transfer to the FIFO. Do NOT include the CRC_A.
+			              uint8_t sendLen,		        ///< Number of bytes in sendData.
+				      bool acceptTimeout	        ///< True => A timeout is also success
+				      );
 	#endif
